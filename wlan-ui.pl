@@ -711,6 +711,7 @@ Options:
     the same as for the command line, but allowing multiple
     lines and comments.
     
+
 =head1 OPTIONS
 
 =over 8
@@ -820,6 +821,16 @@ earlier files.  Options passed on the command line override options
 passed in .wlan-ui.pl files, and any options specified earlier on the
 the command line than the @configfile item.
 
+=head1 REQUIREMENTS
+
+You will need various CPAN modules installed (www.cpan.org):
+
+   Gtk2
+   Gtk2::GladeXML;
+   IO::Select;
+   Getopt::ArgvFile;
+   Pod::Usage;
+
 =head1 INSTALLATION
 
 Installation is simple and inelegant.  Copy the two distribution files
@@ -849,8 +860,7 @@ driver, which gives me a network device attached to 'wlan0'.
 	    'dhcpcd',   '/sbin/dhclient'};
 
 The 'load' and 'unload' commands are usually left undefined, as above,
-but if you want to use a script to load and unload the device, you can
-define them; for example:
+but if you want to use scripts, you can define them; for example:
 
   my $CMDS = {'lsmod',  '/sbin/lsmod', 
 	    'modprobe', undef,      # not needed in this case
@@ -866,7 +876,7 @@ variable.
 
 wlan-ui.pl will need root permissions to run the various wireless
 configuration programs.  I do this by giving myself sudo permission to
-run the script.  Here's some excepts from my /etc/sudoers file:
+run the script.  Here's some excerpts from my /etc/sudoers file:
 
    # Host alias specification
    Host_Alias   LAPTOP = fetastra
