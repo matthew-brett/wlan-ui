@@ -102,11 +102,6 @@ my($me, $my_path)  = fileparse($0, "");
 my(%OPTIONS) = ();
 &GetOptions (\%OPTIONS, @opt_table) || exit 1;
 
-# version
-if ($OPTIONS{version}) {
-    printf "%s - version %4.2f\n", $me, $VERSION;
-}
-
 # fill undefined options with defaults
 my $key;
 foreach $key(keys(%opt_defs)) {
@@ -117,9 +112,13 @@ foreach $key(keys(%opt_defs)) {
 $OPTIONS{quiet} = 0 if $OPTIONS{verbose};
 
 # help messages
+printf "%s - version %4.2f\n", $me, $VERSION if ($OPTIONS{version});
 pod2usage(-exitstatus => 0, -verbose => 2) if ($OPTIONS{man});
 pod2usage(-exitstatus => 0, -verbose => $OPTIONS{verbose})
     if ($OPTIONS{help});
+
+# exit if version number requested
+exit 0 if ($OPTIONS{version});
 
 # sort out commands
 $CMDS = resolve_commands($MODULE, $CMDS);
@@ -205,8 +204,10 @@ sub resolve_commands {
 	unless ($cmds->{load} && $cmds->{unload}) {
 	    $cmds = get_command($cmds, 'modprobe');
 	}
-	$cmds->{load} = "$cmds->{modprobe} $module" unless $cmds->{load};
-	$cmds->{unload} = "$cmds->{modprobe} -r $module" unless $cmds->{unload};
+	$cmds->{load} = "$cmds->{modprobe} $module"
+	    unless $cmds->{load};
+	$cmds->{unload} = "$cmds->{modprobe} -r $module" 
+	    unless $cmds->{unload};
     }
     $cmds = get_command($cmds, 'iwconfig');
     $cmds = get_command($cmds, 'ifconfig');
@@ -263,12 +264,11 @@ sub wlan_deinit {
     }
 }
 
-
 # Add options to scanned APs
 sub add_ap_options {
     my ($aps) = @_;
     my ($ap, $ac_id, $essid, $list_no, @list);
-    @list = @{$OPTIONS{list}};
+    @list = @{$OPTIONS{list}} if defined($OPTIONS{list});
 
     foreach $ap(@$aps) {
 	$essid = $ap->{ESSID};
