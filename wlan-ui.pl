@@ -731,7 +731,7 @@ outputs more help.
 
 =item B<-quiet>
 
-Turn off any messages during conversion
+Gives less messages. 
 
 =item B<-version>
 
