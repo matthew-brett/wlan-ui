@@ -12,7 +12,7 @@
 # 
 # This version by Matthew Brett (matthewb berkeley.edu)
 #
-# $Id: wlan-ui.pl,v 1.8 2005/01/08 20:02:58 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.9 2005/04/01 21:55:11 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -28,7 +28,8 @@ use Getopt::ArgvFile;
 use Pod::Usage;
 
 use strict;
-use vars qw($VERSION $MODULE $DEVICE $CMDS);
+
+use vars qw($VERSION $MODULE $MODULEPARAMS $DEVICE $CMDS);
 
 $VERSION = 0.04;
 
@@ -42,6 +43,9 @@ $VERSION = 0.04;
 
 # Wireless driver module to load
 $MODULE = 'ipw2200';
+
+# Module parameters
+$MODULEPARAMS = '';
 
 # Wireless network device - e.g. 'wlan0'.
 # If not defined we use /proc/net/wireless to find the device
@@ -74,10 +78,11 @@ my(@opt_table) = (
 		  "quiet",         # fewer messages
 		  "version",       # to show version number
 		  "ui!",           # flag to use UI
+		  "quit_on_connect" # whether to quit interface when connected
 		  "autoconnect!",  # whether to try autoconnect or no
+		  "autoconnect_to=s@", # ESSIDs to do auto connect for
 		  "key=s%",        # ESSID=wep_key_value pairs
 		  "passwd=s%",     # ESSID=password pairs
-		  "autoconnect_to=s@", # ESSIDs to do auto connect for
 		  "list=s@",       # put ESSID at top of list for connect
 		  "rescan_interval", # interval (seconds) to rescan if nothing found
 		  "rescan_count", # times to rescan if nothing found
@@ -126,11 +131,11 @@ pod2usage(-exitstatus => 0, -verbose => $OPTIONS{verbose})
 exit 0 if ($OPTIONS{version});
 
 # sort out commands
-$CMDS = resolve_commands($MODULE, $CMDS);
+$CMDS = resolve_commands($MODULE, $MODULEPARAMS, $CMDS);
 
 # Load module if necessary
 my $err;
-die $err if ($err = wlan_mod('load', $MODULE, $CMDS));
+die $err if ($err = wlan_mod_load($MODULE, $CMDS));
 
 # Get device name if not passed
 $DEVICE = &get_wlan_device unless $DEVICE;
@@ -212,21 +217,26 @@ exit 0;
 
 # sort out and check options
 sub resolve_commands {
-    my ($module, $cmds) = @_;
-    my $c;
+    my ($module, $moduleparams, $cmds) = @_;
+    my $c, $locale_str;
 
     if ($module) { # We need commmands 
 	$cmds = get_command($cmds, 'lsmod');
 	unless ($cmds->{load} && $cmds->{unload}) {
 	    $cmds = get_command($cmds, 'modprobe');
 	}
-	$cmds->{load} = "$cmds->{modprobe} $module"
-	    unless $cmds->{load};
+	$cmds->{load} = "$cmds->{modprobe} $module $moduleparams"
+	    unless $cmds->{load}; 
 	$cmds->{unload} = "$cmds->{modprobe} -r $module" 
 	    unless $cmds->{unload};
     }
     foreach $c(qw(iwconfig ifconfig iwlist dhcpcd ps)) {
 	$cmds = get_command($cmds, $c);
+    }
+    $locale_str = "LC_ALL=C";
+    foreach $c(qw(iwconfig ifconfig)) {
+	$cmds->{$c} = "$locale_str  ; $cmds->{$c}"
+	    unless $cmds->{$c} ~= $locale_str;
     }
     return $cmds;
 }
@@ -241,17 +251,32 @@ sub get_command {
     return $cmds;
 }
 
-# load  / unload if needed; return undef or error string if error
-sub wlan_mod {
-    my ($cmd_key, $module, $cmds) = @_;
+# load  if needed; return undef or error string if error
+sub wlan_mod_load {
+    my ($module, $cmds) = @_;
     my ($res);
 
     return undef unless $module;
     
     if (`$cmds->{lsmod}` !~ /$module/g) {
-	$res = `$cmds->{$cmd_key}`;
-	return "$res: could not $cmd_key $module" 
+	$res = `$cmds->{load}`;
+	return "$res: could not load $module" 
 	    if (`$cmds->{lsmod}` !~ /$module/g); 
+    }
+    return undef;
+}
+
+# unload if needed; return undef or error string if error
+sub wlan_mod_unload {
+    my ($module, $cmds) = @_;
+    my ($res);
+
+    return undef unless $module;
+    
+    if (`$cmds->{lsmod}` =~ /$module/g) {
+	$res = `$cmds->{unload}`;
+	return "$res: could not unload $module" 
+	    if (`$cmds->{lsmod}` =~ /$module/g); 
     }
     return undef;
 }
@@ -328,7 +353,7 @@ sub scan_for_aps {
 # Parse ifconfig info into hash ref
 sub parse_iwconfig {
     my ($iw_cmd) = shift;
-    my $iw_string = `$iw_cmd`;
+    my $iw_string = ` $iw_cmd`;
 
     return parse_ap_info($iw_string);
 }
@@ -373,7 +398,7 @@ sub parse_ifconfig {
 		   'mask',  '<Unknown>',
 		   );
     my $if_string = `$if_cmd`;
-
+        
     if ($if_string =~/inet addr:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/gi) {
         $if_info{ip} = $1;
     } 
@@ -639,7 +664,7 @@ sub on_w_main_delete_event {
 
 sub on_b_quit_unload_clicked {
     my $err;
-    warn $err if ($err = wlan_mod('unload', $MODULE, $CMDS));
+    warn $err if ($err = wlan_mod_unload($MODULE, $CMDS));
     Gtk2->main_quit;
     return 0;
 }
@@ -665,8 +690,8 @@ sub on_b_connect_clicked {
     my $essid = ${$SLIST->{data}}[$sel[0]][1];
     my $ap = get_ap_by_essid($APS, $essid);
     die "Cannot find AP $essid" unless $ap;
-    
-    Gtk2->main_quit if ( ui_connect($ap, $CMDS) );
+
+    Gtk2->main_quit if ( ui_connect($ap, $CMDS) & $OPTIONS{quit_on_connect});
 }
 
 1;
@@ -691,6 +716,7 @@ Options:
     -list            specify  ESSID to put at top of list for connect
     -rescan_interval interval (in seconds) to rescan if no APs found
     -rescan_count    number of times to rescan if no APs found
+    -quit_on_connect whether to quit program when successfully connected
     -autoconnect     try to connect to any APs listed as good for autoconnect
     -autoconnect_to  give ESSID name of AP for which to try autoconnect 
     -noui            just do autoconnect, don't start UI for connect if fails 
@@ -758,6 +784,13 @@ no APs found (default 2).
 =item B<-rescan_count>
 
 Sets the number of times to rescan if no APs found (default 1).
+
+=item B<-quit_on_connect>
+
+By default, and with the -quit_on_connect option, the program will
+finish when connection to an AP is successful.  To reverse this
+default (so program does not quit) use the -no_quit_on_connect version
+of this option.
 
 =item B<-autoconnect>
 
@@ -847,6 +880,9 @@ default this gives me a network device attached to 'wlan0'.
 
   # Wireless driver module to load
   $MODULE = 'ipw2200';
+
+  # Module parameters
+  $MODULEPARAMS = '';
 
   # Wireless network device - e.g. 'wlan0'.
   # If not defined we use /proc/net/wireless to find the device
