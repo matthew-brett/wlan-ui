@@ -12,7 +12,7 @@
 # 
 # This version by Matthew Brett (matthewb berkeley.edu)
 #
-# $Id: wlan-ui.pl,v 1.5 2005/01/03 06:21:31 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.6 2005/01/06 04:12:30 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -809,7 +809,7 @@ the command line than the @configfile item.
 
 =head1 REQUIREMENTS
 
-You will need various CPAN modules installed (www.cpan.org):
+You will need various CPAN modules installed E<lt>http://www.cpan.orgE<gt>:
 
    Gtk2
    Gtk2::GladeXML
@@ -904,7 +904,7 @@ file to see where this will cause a problem.
 
 =head1 AUTHORS
 
-Matthew Brett E<lt>mailto://matthewb berkeley.eduE<gt>
+Matthew Brett E<lt>matthewb berkeley.eduE<gt>
 
 Mirza Muharemagic E<lt>http://www.php.co.ba/X31E<gt>
 
