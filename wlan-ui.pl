@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w 
-# Program to get wireless access points, connect etc
+# wlan-ui.pl: GUI script to get wireless access points, connect etc
 #
 # Based on wlan-zenity:
 ## Name:    WLAN-Connect 0.3               ##
@@ -8,30 +8,19 @@
 ## WWW:     http://www.php.co.ba/X31       ##
 ## License: BSD                            ##
 #
-# with many thanks
+# with many thanks.
 # 
-# This version by Matthew Brett (matthew.brett@gmail.com)
-
-# Notes to self on modules etc
-
-# We need to know if the wlan interface is ready on startup, and how
-# to load it if it is not ready and how to unload it, if
-# necessary. All these tests can be directly passed to the program;
-# the default, though, is to use the module name, and lsmod/modprobe
-# to do this for us.  So, the procedure is: if 'module' option is not
-# defined, the interface is assumed to be always up, and no attempt is
-# made to check, unload etc.  
-
-# We don't currently use the MAC address of the AP when connecting.
-# This will give odd effects when there is more than on AP with the
-# same ESSID.  Search for the get_ap_by_essid function to see where
-# this will cause a problem.
+# This version by Matthew Brett (matthewb berkeley.edu)
+#
+# $Id: wlan-ui.pl,v 1.5 2005/01/03 06:21:31 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
 use Gtk2::SimpleList;
 
 use IO::Select;
+
+use Digest::MD5;
 
 use File::Basename;
 use Getopt::Long;
@@ -41,14 +30,25 @@ use Pod::Usage;
 use strict;
 use vars qw($VERSION);
 
-$VERSION = 0.02;
+$VERSION = 0.03;
+
+# We need to know if the wireless interface is up when we start.  To
+# do this, we check if the right module for the wireless interface is
+# loaded ($MODULE variable).  If $MODULE is not defined, the interface
+# is assumed to be always up, and no attempt is made to check, unload
+# etc.  If $MODULE is not defined, you would not need to define the
+# commands (see below): lsmod; modprobe; load; unload.
+
+# ------------------------------------------------------------------
+# Make edits below to fit you configuration
+# ------------------------------------------------------------------
 
 # Wireless driver module to load
-my $MODULE = 'ndiswrapper';
+my $MODULE = 'ipw2200';
 
 # Wireless network device - e.g. 'wlan0'.
 # If not defined we use /proc/net/wireless to find the device
-my $device = 'wlan0';
+my $device = undef;
 
 # Commands for manipulating wlan module etc
 # We will find unspecified commands from the path
@@ -61,6 +61,11 @@ my $CMDS = {'lsmod',  '/sbin/lsmod',
 	'ifconfig', '/sbin/ifconfig',
 	'ps',       undef,
 	'dhcpcd',   '/sbin/dhclient'};
+
+# ------------------------------------------------------------------
+# You wouldn't normally want to edit below here
+# ------------------------------------------------------------------
+
 
 # Getopt::long option definitions
 my(@opt_table) = (
@@ -75,7 +80,7 @@ my(@opt_table) = (
 		  "passwd=s%",     # ESSID=password pairs
 		  "autoconnect_to=s@", # ESSIDs to do auto connect for
 		  "list=s@",       # put ESSID at top of list for connect
-		  "rescan_interval", # interval (in seconds) to rescan if nothing found
+		  "rescan_interval", # interval (seconds) to rescan if nothing found
 		  "rescan_count", # times to rescan if nothing found
 		  );
 
@@ -85,8 +90,8 @@ my(%opt_defs) = (
 		 'verbose', 0,
 		 'ui',      1, 
 		 'autoconnect', 0,
-		 'rescan_interval', 5, 
-		 'rescan_count', 5,
+		 'rescan_interval', 2, 
+		 'rescan_count', 1,
 		 );
 
 my($me, $my_path)  = fileparse($0, "");
@@ -105,9 +110,7 @@ my(%OPTIONS) = ();
 # fill undefined options with defaults
 my $key;
 foreach $key(keys(%opt_defs)) {
-    if (!defined($OPTIONS{$key})) {
-	$OPTIONS{$key}=$opt_defs{$key};
-    }
+    $OPTIONS{$key}=$opt_defs{$key} unless (defined($OPTIONS{$key}));
 }
 $OPTIONS{quiet} = 0 if $OPTIONS{verbose};
 
@@ -124,13 +127,17 @@ exit 0 if ($OPTIONS{version});
 $CMDS = resolve_commands($MODULE, $CMDS);
 
 # Load module if necessary
-&wlan_init($MODULE, $CMDS);
+my $err;
+die $err if ($err = wlan_mod('load', $MODULE, $CMDS));
 
 # Get device name if not passed
 $device = &get_wlan_device unless $device;
 
 # Add device name to commands
-$CMDS = add_device_commands($device, $CMDS);
+my $cmd;
+foreach $cmd(qw(iwlist iwconfig ifconfig dhcpcd)) {
+    $CMDS->{$cmd} .= " $device";
+}
 
 # Clear old dhcp licences from this device
 &clear_dhcp_clients($CMDS);
@@ -149,7 +156,7 @@ if ($OPTIONS{autoconnect}) {
 }
 exit 0 unless $OPTIONS{ui};
 
-# Glade stuff
+# Glade / Gtk stuff
 Gtk2->init;
 my $gladexml = Gtk2::GladeXML->new("$my_path/wlan-ui.glade");
 $gladexml->signal_autoconnect_from_package('main');
@@ -197,8 +204,8 @@ exit 0;
 # sort out and check options
 sub resolve_commands {
     my ($module, $cmds) = @_;
+    my $c;
 
-# command options
     if ($module) { # We need commmands 
 	$cmds = get_command($cmds, 'lsmod');
 	unless ($cmds->{load} && $cmds->{unload}) {
@@ -209,11 +216,9 @@ sub resolve_commands {
 	$cmds->{unload} = "$cmds->{modprobe} -r $module" 
 	    unless $cmds->{unload};
     }
-    $cmds = get_command($cmds, 'iwconfig');
-    $cmds = get_command($cmds, 'ifconfig');
-    $cmds = get_command($cmds, 'iwlist');
-    $cmds = get_command($cmds, 'dhcpcd');
-    $cmds = get_command($cmds, 'ps');
+    foreach $c(qw(iwconfig ifconfig iwlist dhcpcd ps)) {
+	$cmds = get_command($cmds, $c);
+    }
     return $cmds;
 }
 
@@ -227,41 +232,19 @@ sub get_command {
     return $cmds;
 }
 
-# Add device name to relevant commands
-sub add_device_commands {
-    my ($device, $cmds) = @_;
-    $cmds->{iwlist}   = "$cmds->{iwlist} $device";
-    $cmds->{iwconfig} = "$cmds->{iwconfig} $device";
-    $cmds->{ifconfig} = "$cmds->{ifconfig} $device";
-    $cmds->{dhcpcd}   = "$cmds->{dhcpcd} $device";
-    return $cmds;
-}
-
-# load if load is needed
-sub wlan_init {
-    my ($module, $cmds) = @_;
+# load  / unload if needed; return undef or error string if error
+sub wlan_mod {
+    my ($cmd_key, $module, $cmds) = @_;
     my ($res);
 
-    return unless $module;
+    return undef unless $module;
     
     if (`$cmds->{lsmod}` !~ /$module/g) {
-	$res = `$cmds->{load}`;
-	die "$res: could not load $module" if
-	    (`$cmds->{lsmod}` !~ /$module/g); 
+	$res = `$cmds->{$cmd_key}`;
+	return "$res: could not $cmd_key $module" 
+	    if (`$cmds->{lsmod}` !~ /$module/g); 
     }
-}
-
-sub wlan_deinit {
-    my ($module, $cmds) = @_;
-    my ($res);
-
-    return unless $module;
-    
-    if (`$cmds->{lsmod}` =~ /$module/g) {
-	$res = `$cmds->{unload}`;
-	warn "$res: could not unload $module" if
-	    (`$cmds->{lsmod}` =~ /$module/g); 
-    }
+    return undef;
 }
 
 # Add options to scanned APs
@@ -435,7 +418,7 @@ sub configure_device {
     my ($ap, $cmds) = @_;
     my $wep_key = $ap->{key} ? $ap->{key} : 'off';
     my $cmd = "$cmds->{iwconfig} " .
-	"key open $wep_key essid \"$ap->{ESSID}\"";
+	"key $wep_key essid \"$ap->{ESSID}\"";
     print "Command $cmd\n" if $OPTIONS{verbose};
     my $res = `$cmd`;
 }
@@ -490,8 +473,8 @@ sub FindWLANdevice {
 ## http://mattfoster.clara.co.uk/madwifi-faq.htm
 ## (function from wlan-zenity)
 sub MakeWepKey {
-    require Digest::MD5;
-    return (substr Digest::MD5::md5_hex( substr( shift()  x 64, 0, 64 ) ), 0, 26);
+    return (substr Digest::MD5::md5_hex( substr( shift()  x 64, 0, 64 ) ), 
+	    0, 26);
 }
 
 # Fills main window with AP information
@@ -646,7 +629,8 @@ sub on_w_main_delete_event {
 }
 
 sub on_b_quit_unload_clicked {
-    &wlan_deinit($MODULE, $CMDS);
+    my $err;
+    warn $err if ($err = wlan_mod('unload', $MODULE, $CMDS));
     Gtk2->main_quit;
     return 0;
 }
@@ -756,22 +740,24 @@ Specifies one or more ESSIDs to put at top of list for connect; e.g.
  wlan-ui.pl -list my_essid -list other_essid
 
 The APs are listed in the order they appear on the command line (or in
-the options file.  APs are only listed if they also appear in the
-interface scan results.  APs not specified using the -list option, but
-detected by the interface scan, are listed in order of signal strength.
+the options file - see below).  APs are only listed if they also
+appear in the interface scan results.  APs not specified using the
+-list option, but detected by the interface scan, are listed in order
+of signal strength.
 
 =item B<-rescan_interval>
 
-Sets the interval (in seconds) to wait before rescanning for APs, if no APs found
+Sets the interval (in seconds) to wait before rescanning for APs, if
+no APs found (default 2).
 
 =item B<-rescan_count>
 
-Sets the number of times to rescan if no APs found
+Sets the number of times to rescan if no APs found (default 1).
 
 =item B<-autoconnect>
 
 If this option is set, wlan-ui.pl will search for any APs listed as
-good for autocnnectioning (see -autoconnect_to below), and which
+good for autoconnecting (see -autoconnect_to below), and which
 either do not need encryption, or have passwords / WEP keys given
 elsewhere in the options (see -key, -passwd).  If it finds such an AP,
 it will try and connect.  If the connection is successful, the GUI
@@ -780,7 +766,7 @@ wlan-ui.pl launches the GUI (see -noui option below).
 
 =item B<-autoconnect_to>
 
-Option to give pne or many ESSID names of AP for which to try autoconnect; e.g.
+Give one or many ESSID names of APs for which to try autoconnect; e.g.
 
  wlan-ui.pl -autoconnect_to my_essid -autoconnect_to other_essid
 
@@ -826,10 +812,11 @@ the command line than the @configfile item.
 You will need various CPAN modules installed (www.cpan.org):
 
    Gtk2
-   Gtk2::GladeXML;
-   IO::Select;
-   Getopt::ArgvFile;
-   Pod::Usage;
+   Gtk2::GladeXML
+   IO::Select
+   Digest::MD5
+   Getopt::ArgvFile
+   Pod::Usage
 
 =head1 INSTALLATION
 
@@ -837,7 +824,7 @@ Installation is simple and inelegant.  Copy the two distribution files
 (wlan-ui.pl, wlan-ui.glade) to the same directory.  Edit the top of
 the wlan-ui.pl file to match your system.  There are a small number of
 relevant things you may want to edit.  Here is one example, using the
-ndiswrapper module (ndiswrapper.sourceforge.net) as my wireless
+ndiswrapper module (http://ndiswrapper.sourceforge.net) as my wireless
 driver, which gives me a network device attached to 'wlan0'.
 
   # Wireless driver module to load
@@ -860,7 +847,9 @@ driver, which gives me a network device attached to 'wlan0'.
 	    'dhcpcd',   '/sbin/dhclient'};
 
 The 'load' and 'unload' commands are usually left undefined, as above,
-but if you want to use scripts, you can define them; for example:
+but if you want to use scripts, you can define them.  For example, if
+there is a startup/shutdown script for the wireless connection that is
+named after the wireless module, you could try something like:
 
   my $CMDS = {'lsmod',  '/sbin/lsmod', 
 	    'modprobe', undef,      # not needed in this case
@@ -906,9 +895,16 @@ wlan-ui.pl is based on wlan-zenity, written by Mirza Muharemagic
 
 See description of options for list of features.
 
+=head1 ODD FEATURES
+
+We don't currently use the MAC address of the AP when connecting.
+This will give odd effects when there is more than one AP with the
+same ESSID.  Search for the get_ap_by_essid function in the wlan-ui.pl
+file to see where this will cause a problem.
+
 =head1 AUTHORS
 
-Matthew Brett E<lt>mailto://matthewb@berkeley.eduE<gt>
+Matthew Brett E<lt>mailto://matthewb berkeley.eduE<gt>
 
 Mirza Muharemagic E<lt>http://www.php.co.ba/X31E<gt>
 
