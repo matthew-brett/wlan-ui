@@ -10,9 +10,10 @@
 #
 # with many thanks.
 # 
-# This version by Matthew Brett (matthewb berkeley.edu)
+# This version by Matthew Brett (matthewb berkeley.edu), with help
+# from Martin Steigerwald
 #
-# $Id: wlan-ui.pl,v 1.10 2005/04/01 22:10:35 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.11 2005/04/01 22:14:30 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
