@@ -12,7 +12,7 @@
 # 
 # This version by Matthew Brett (matthewb berkeley.edu)
 #
-# $Id: wlan-ui.pl,v 1.7 2005/01/06 23:29:45 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.8 2005/01/08 20:02:58 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -31,13 +31,6 @@ use strict;
 use vars qw($VERSION $MODULE $DEVICE $CMDS);
 
 $VERSION = 0.04;
-
-# We need to know if the wireless interface is up when we start.  To
-# do this, we check if the right module for the wireless interface is
-# loaded ($MODULE variable).  If $MODULE is not defined, the interface
-# is assumed to be always up, and no attempt is made to check, unload
-# etc.  If $MODULE is not defined, you would not need to define the
-# commands (see below): lsmod; modprobe; load; unload.
 
 # ------------------------------------------------------------------
 # You can make edits below to fit you configuration.  It's probably
@@ -704,9 +697,9 @@ Options:
     @configfile 
 
     Options configuration file containing any of the options above in
-    format given by Getopts::Argvfile (www.cpan.org) - the format is
-    the same as for the command line, but allowing multiple lines and
-    comments.
+    format given by Getopts::Argvfile E<lt>www.cpan.orgE<gt> - the
+    format is the same as for the command line, but allowing multiple
+    lines and comments.
 
 =head1 OPTIONS
 
@@ -844,10 +837,13 @@ above).  The system configuration file tells the program how to
 configure the wireless interface, and the options configuration file
 sets defaults for access points and other things.  The default
 location of the system configuration file is /etc/wlan-uirc; you can
-change this by editing the contents of the $sys_config variable
-in the program file. Below is an example file, which uses the ipw2200
-module (http://ipw2100.sourceforge.net) as my wireless driver.  By
+change this by editing the contents of the $sys_config variable in the
+program file. Below is an example file, which uses the ipw2200 module
+E<lt>http://ipw2100.sourceforge.netE<gt> as my wireless driver.  By
 default this gives me a network device attached to 'wlan0'.
+
+  # Example system configuration file 
+  # Save as /etc/wlan-uirc
 
   # Wireless driver module to load
   $MODULE = 'ipw2200';
@@ -870,9 +866,9 @@ default this gives me a network device attached to 'wlan0'.
 
 The 'load' and 'unload' commands are usually left undefined, as above,
 but if you want to use scripts, you can define them.  For example, the
-driverloader wireless driver (www.linuxant.com) uses a system init
-script to start and stop the wireless driver.  To make this work, you
-could try something like:
+driverloader wireless driver E<lt>http://www.linuxant.comE<gt> uses a
+system init script to start and stop the wireless driver.  To make
+this work, you could try something like:
 
   $MODULE = 'driverloader';  
   $CMDS = {'lsmod',  '/sbin/lsmod', 
@@ -889,6 +885,10 @@ find your wireless network device using the /proc/net/wireless
 interface.  If this fails, you will get messages including "WLAN
 device not found", and will need to set the $DEVICE variable to the
 name of your wireless interface (e.g. $DEVICE = 'wlan0';).
+
+You can leave $MODULE undefined, in which case the wireless interface
+is assumed to be always up, and no attempt is made to check, unload
+etc, and you don't need to define lsmod; modprobe; load; unload.
 
 wlan-ui.pl will need root permissions to run the various wireless
 configuration programs.  I do this by giving myself sudo permission to
@@ -920,7 +920,7 @@ run as a GUI which will offer a list of available networks to connect
 to.  
 
 wlan-ui.pl is based on wlan-zenity, written by Mirza Muharemagic
-(http://www.php.co.ba/X31) and released under the BSD license.
+E<lt>http://www.php.co.ba/X31E<gt> and released under the BSD license.
 
 =head1 FEATURES
 
