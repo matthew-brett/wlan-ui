@@ -12,7 +12,7 @@
 # 
 # This version by Matthew Brett (matthewb berkeley.edu)
 #
-# $Id: wlan-ui.pl,v 1.6 2005/01/06 04:12:30 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.7 2005/01/06 23:29:45 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -28,9 +28,9 @@ use Getopt::ArgvFile;
 use Pod::Usage;
 
 use strict;
-use vars qw($VERSION);
+use vars qw($VERSION $MODULE $DEVICE $CMDS);
 
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 # We need to know if the wireless interface is up when we start.  To
 # do this, we check if the right module for the wireless interface is
@@ -40,19 +40,23 @@ $VERSION = 0.03;
 # commands (see below): lsmod; modprobe; load; unload.
 
 # ------------------------------------------------------------------
-# Make edits below to fit you configuration
+# You can make edits below to fit you configuration.  It's probably
+# better to do this using a configuration file though; see the
+# INSTALLATION section in the program help for more detail.  Note
+# that, if you do edit below, then any settings will be overwritten by
+# the configuration file, if present.
 # ------------------------------------------------------------------
 
 # Wireless driver module to load
-my $MODULE = 'ipw2200';
+$MODULE = 'ipw2200';
 
 # Wireless network device - e.g. 'wlan0'.
 # If not defined we use /proc/net/wireless to find the device
-my $device = undef;
+$DEVICE = undef;
 
 # Commands for manipulating wlan module etc
 # We will find unspecified commands from the path
-my $CMDS = {'lsmod',  '/sbin/lsmod', 
+$CMDS = {'lsmod',  '/sbin/lsmod', 
 	'modprobe', '/sbin/modprobe',
 	'load',     undef,       # modprobe used by default
 	'unload',   undef,       # modprobe -r used by default
@@ -62,10 +66,12 @@ my $CMDS = {'lsmod',  '/sbin/lsmod',
 	'ps',       undef,
 	'dhcpcd',   '/sbin/dhclient'};
 
+# Name of system configuration file 
+my $sys_config = '/etc/wlan-uirc';
+
 # ------------------------------------------------------------------
 # You wouldn't normally want to edit below here
 # ------------------------------------------------------------------
-
 
 # Getopt::long option definitions
 my(@opt_table) = (
@@ -114,6 +120,9 @@ foreach $key(keys(%opt_defs)) {
 }
 $OPTIONS{quiet} = 0 if $OPTIONS{verbose};
 
+# load system configuration file if present
+do $sys_config if (-e $sys_config);
+
 # help messages
 printf "%s - version %4.2f\n", $me, $VERSION if ($OPTIONS{version});
 pod2usage(-exitstatus => 0, -verbose => 2) if ($OPTIONS{man});
@@ -131,12 +140,12 @@ my $err;
 die $err if ($err = wlan_mod('load', $MODULE, $CMDS));
 
 # Get device name if not passed
-$device = &get_wlan_device unless $device;
+$DEVICE = &get_wlan_device unless $DEVICE;
 
 # Add device name to commands
 my $cmd;
 foreach $cmd(qw(iwlist iwconfig ifconfig dhcpcd)) {
-    $CMDS->{$cmd} .= " $device";
+    $CMDS->{$cmd} .= " $DEVICE";
 }
 
 # Clear old dhcp licences from this device
@@ -158,8 +167,15 @@ exit 0 unless $OPTIONS{ui};
 
 # Glade / Gtk stuff
 Gtk2->init;
-my $gladexml = Gtk2::GladeXML->new("$my_path/wlan-ui.glade");
+
+# 'Load' glade-xml from DATA section
+my $glade_data; {local $/ = undef; $glade_data = <DATA>;}
+
+# Load the UI from xml definition
+my $gladexml = Gtk2::GladeXML->new_from_buffer($glade_data);
 $gladexml->signal_autoconnect_from_package('main');
+
+# Set various global variables we will use in callbacks
 my $W_MAIN = $gladexml->get_widget('w_main');
 my $DLG_PASSWD = $gladexml->get_widget('dlg_passwd');
 my $TE_PASSWD = $gladexml->get_widget('te_passwd');
@@ -662,8 +678,6 @@ sub on_b_connect_clicked {
 
 1;
 
-__END__
-
 =head1 NAME
 
 wlan-ui.pl - UI for selecting and connecting to WLAN access points (APs)
@@ -687,14 +701,12 @@ Options:
     -autoconnect     try to connect to any APs listed as good for autoconnect
     -autoconnect_to  give ESSID name of AP for which to try autoconnect 
     -noui            just do autoconnect, don't start UI for connect if fails 
-
     @configfile 
 
-    Configuration file containing any of the options above in format
-    given by Getopts::Argvfile (www.cpan.org) - the format is
-    the same as for the command line, but allowing multiple
-    lines and comments.
-    
+    Options configuration file containing any of the options above in
+    format given by Getopts::Argvfile (www.cpan.org) - the format is
+    the same as for the command line, but allowing multiple lines and
+    comments.
 
 =head1 OPTIONS
 
@@ -779,7 +791,11 @@ it fails, it will not launch the GUI to select another AP.
 
 =head1 CONFIGFILE
 
-Options can be specified by configuration files in the same format as
+wlan-ui.pl uses two types of configuration file, a system
+configuration file (see INSTALLATION below), and option configuration
+files, described here.
+
+Option configuration files can specify options in the same format as
 for the command line, except options can be specified across many
 lines, and comments can be interposed: e.g
 
@@ -820,48 +836,59 @@ You will need various CPAN modules installed E<lt>http://www.cpan.orgE<gt>:
 
 =head1 INSTALLATION
 
-Installation is simple and inelegant.  Copy the two distribution files
-(wlan-ui.pl, wlan-ui.glade) to the same directory.  Edit the top of
-the wlan-ui.pl file to match your system.  There are a small number of
-relevant things you may want to edit.  Here is one example, using the
-ndiswrapper module (http://ndiswrapper.sourceforge.net) as my wireless
-driver, which gives me a network device attached to 'wlan0'.
+Installation is simple and inelegant.  Copy the program file
+(wlan-ui.pl) to a directory on your path.  Next, create a new system
+configuration file to reflect your system.  The system configuration
+file is different from the options configuration file (@configfile,
+above).  The system configuration file tells the program how to
+configure the wireless interface, and the options configuration file
+sets defaults for access points and other things.  The default
+location of the system configuration file is /etc/wlan-uirc; you can
+change this by editing the contents of the $sys_config variable
+in the program file. Below is an example file, which uses the ipw2200
+module (http://ipw2100.sourceforge.net) as my wireless driver.  By
+default this gives me a network device attached to 'wlan0'.
 
   # Wireless driver module to load
-  my $MODULE = 'ndiswrapper';
+  $MODULE = 'ipw2200';
 
   # Wireless network device - e.g. 'wlan0'.
   # If not defined we use /proc/net/wireless to find the device
-  my $device = 'wlan0';
+  $DEVICE = undef;
 
   # Commands for manipulating wlan module etc
   # We will find unspecified commands from the path
-  my $CMDS = {'lsmod',  '/sbin/lsmod', 
-	    'modprobe', '/sbin/modprobe',
-	    'load',     undef,       # modprobe used by default
-	    'unload',   undef,       # modprobe -r used by default
-	    'iwconfig', '/sbin/iwconfig',
-	    'iwlist',   '/sbin/iwlist',
-	    'ifconfig', '/sbin/ifconfig',
-	    'ps',       undef,
-	    'dhcpcd',   '/sbin/dhclient'};
+  $CMDS = {'lsmod',  '/sbin/lsmod', 
+	   'modprobe', '/sbin/modprobe',
+	   'load',     undef,       # modprobe used by default
+	   'unload',   undef,       # modprobe -r used by default
+	   'iwconfig', '/sbin/iwconfig',
+	   'iwlist',   '/sbin/iwlist',
+	   'ifconfig', '/sbin/ifconfig',
+	   'ps',       undef,
+	   'dhcpcd',   '/sbin/dhclient'};
 
 The 'load' and 'unload' commands are usually left undefined, as above,
-but if you want to use scripts, you can define them.  For example, if
-there is a startup/shutdown script for the wireless connection that is
-named after the wireless module, you could try something like:
+but if you want to use scripts, you can define them.  For example, the
+driverloader wireless driver (www.linuxant.com) uses a system init
+script to start and stop the wireless driver.  To make this work, you
+could try something like:
 
-  my $CMDS = {'lsmod',  '/sbin/lsmod', 
-	    'modprobe', undef,      # not needed in this case
-	    'load',     "/sbin/service $MODULE start",
-	    'unload',   "/sbin/service $MODULE stop", 
+  $MODULE = 'driverloader';  
+  $CMDS = {'lsmod',  '/sbin/lsmod', 
+	   'modprobe', undef,      # not needed in this case
+	   'load',     "/sbin/service $MODULE start",
+	   'unload',   "/sbin/service $MODULE stop", 
   ...
 
-If you leave the network device name ($device) undefined, the script
-will try and find the device using the /proc/net/wireless interface.
-If this fails, you will get messages including "WLAN device not
-found", and will need to set your wireless device name in the $device
-variable.
+Note the quotes (") around the load and unload command, to allow
+variable substitution.
+
+If you leave the $DEVICE variable undefined, the script will try and
+find your wireless network device using the /proc/net/wireless
+interface.  If this fails, you will get messages including "WLAN
+device not found", and will need to set the $DEVICE variable to the
+name of your wireless interface (e.g. $DEVICE = 'wlan0';).
 
 wlan-ui.pl will need root permissions to run the various wireless
 configuration programs.  I do this by giving myself sudo permission to
@@ -881,6 +908,10 @@ I can then run wlan-ui.pl with
   sudo /usr/local/bin/wlan-ui.pl
 
 For some security, make sure wlan-ui.pl is writeable only by root.
+
+Note that the system configuration file (/etc/wlan-uirc) can contain
+commands that will be executed from within the program.  You may want
+to make sure that the configuration file is only writeable by root.
 
 =head1 DESCRIPTION
 
@@ -917,3 +948,534 @@ Artistic License that came with your Perl distribution for more
 details.
 
 =cut
+
+#----------------------------------------------------------------------
+# We can append the glade file here instead of loading from file
+#----------------------------------------------------------------------
+# Loading from a file is just as easy; the file would merely be
+# everything after and not including the __DATA__ line.  Such a file
+# could be loaded with something like:
+#
+# my $gladexml = Gtk2::GladeXML->new("$my_path/wlan-ui.glade");
+
+__DATA__
+<?xml version="1.0" standalone="no"?> <!--*- mode: xml -*-->
+<!DOCTYPE glade-interface SYSTEM "http://glade.gnome.org/glade-2.0.dtd">
+
+<glade-interface>
+<requires lib="gnome"/>
+
+<widget class="GtkWindow" id="w_main">
+  <property name="visible">True</property>
+  <property name="title" translatable="yes">WLAN-UI</property>
+  <property name="type">GTK_WINDOW_TOPLEVEL</property>
+  <property name="window_position">GTK_WIN_POS_CENTER</property>
+  <property name="modal">False</property>
+  <property name="default_width">500</property>
+  <property name="default_height">340</property>
+  <property name="resizable">True</property>
+  <property name="destroy_with_parent">False</property>
+  <property name="decorated">True</property>
+  <property name="skip_taskbar_hint">False</property>
+  <property name="skip_pager_hint">False</property>
+  <property name="type_hint">GDK_WINDOW_TYPE_HINT_NORMAL</property>
+  <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
+  <signal name="delete_event" handler="on_w_main_delete_event" last_modification_time="Sun, 19 Sep 2004 18:47:34 GMT"/>
+
+  <child>
+    <widget class="GtkVBox" id="vbox1">
+      <property name="visible">True</property>
+      <property name="homogeneous">False</property>
+      <property name="spacing">0</property>
+
+      <child>
+	<widget class="GtkScrolledWindow" id="sw_aps">
+	  <property name="visible">True</property>
+	  <property name="can_focus">True</property>
+	  <property name="hscrollbar_policy">GTK_POLICY_ALWAYS</property>
+	  <property name="vscrollbar_policy">GTK_POLICY_ALWAYS</property>
+	  <property name="shadow_type">GTK_SHADOW_NONE</property>
+	  <property name="window_placement">GTK_CORNER_TOP_LEFT</property>
+
+	  <child>
+	    <widget class="GtkTreeView" id="tv_aps">
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="headers_visible">True</property>
+	      <property name="rules_hint">False</property>
+	      <property name="reorderable">False</property>
+	      <property name="enable_search">True</property>
+	    </widget>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">True</property>
+	  <property name="fill">True</property>
+	</packing>
+      </child>
+
+      <child>
+	<widget class="GtkHBox" id="hbox1">
+	  <property name="border_width">1</property>
+	  <property name="visible">True</property>
+	  <property name="homogeneous">False</property>
+	  <property name="spacing">0</property>
+
+	  <child>
+	    <widget class="GtkButton" id="b_connect">
+	      <property name="border_width">3</property>
+	      <property name="width_request">100</property>
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <signal name="clicked" handler="on_b_connect_clicked" last_modification_time="Mon, 20 Sep 2004 02:06:30 GMT"/>
+
+	      <child>
+		<widget class="GtkAlignment" id="alignment1">
+		  <property name="border_width">3</property>
+		  <property name="visible">True</property>
+		  <property name="xalign">0.5</property>
+		  <property name="yalign">0.5</property>
+		  <property name="xscale">0</property>
+		  <property name="yscale">0</property>
+		  <property name="top_padding">0</property>
+		  <property name="bottom_padding">0</property>
+		  <property name="left_padding">0</property>
+		  <property name="right_padding">0</property>
+
+		  <child>
+		    <widget class="GtkHBox" id="hbox2">
+		      <property name="visible">True</property>
+		      <property name="homogeneous">False</property>
+		      <property name="spacing">2</property>
+
+		      <child>
+			<widget class="GtkImage" id="image1">
+			  <property name="visible">True</property>
+			  <property name="stock">gtk-jump-to</property>
+			  <property name="icon_size">4</property>
+			  <property name="xalign">0.5</property>
+			  <property name="yalign">0.5</property>
+			  <property name="xpad">0</property>
+			  <property name="ypad">0</property>
+			</widget>
+			<packing>
+			  <property name="padding">0</property>
+			  <property name="expand">False</property>
+			  <property name="fill">False</property>
+			</packing>
+		      </child>
+
+		      <child>
+			<widget class="GtkLabel" id="label1">
+			  <property name="visible">True</property>
+			  <property name="label" translatable="yes">Connect</property>
+			  <property name="use_underline">True</property>
+			  <property name="use_markup">False</property>
+			  <property name="justify">GTK_JUSTIFY_LEFT</property>
+			  <property name="wrap">False</property>
+			  <property name="selectable">False</property>
+			  <property name="xalign">0.5</property>
+			  <property name="yalign">0.5</property>
+			  <property name="xpad">0</property>
+			  <property name="ypad">0</property>
+			</widget>
+			<packing>
+			  <property name="padding">0</property>
+			  <property name="expand">False</property>
+			  <property name="fill">False</property>
+			</packing>
+		      </child>
+		    </widget>
+		  </child>
+		</widget>
+	      </child>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	      <property name="pack_type">GTK_PACK_END</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkButton" id="b_rescan">
+	      <property name="border_width">3</property>
+	      <property name="width_request">100</property>
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <signal name="clicked" handler="on_b_rescan_clicked" last_modification_time="Mon, 20 Sep 2004 02:02:09 GMT"/>
+
+	      <child>
+		<widget class="GtkAlignment" id="alignment2">
+		  <property name="visible">True</property>
+		  <property name="xalign">0.5</property>
+		  <property name="yalign">0.5</property>
+		  <property name="xscale">0</property>
+		  <property name="yscale">0</property>
+		  <property name="top_padding">0</property>
+		  <property name="bottom_padding">0</property>
+		  <property name="left_padding">0</property>
+		  <property name="right_padding">0</property>
+
+		  <child>
+		    <widget class="GtkHBox" id="hbox3">
+		      <property name="visible">True</property>
+		      <property name="homogeneous">False</property>
+		      <property name="spacing">2</property>
+
+		      <child>
+			<widget class="GtkImage" id="image2">
+			  <property name="visible">True</property>
+			  <property name="stock">gtk-refresh</property>
+			  <property name="icon_size">4</property>
+			  <property name="xalign">0.5</property>
+			  <property name="yalign">0.5</property>
+			  <property name="xpad">0</property>
+			  <property name="ypad">0</property>
+			</widget>
+			<packing>
+			  <property name="padding">0</property>
+			  <property name="expand">False</property>
+			  <property name="fill">False</property>
+			</packing>
+		      </child>
+
+		      <child>
+			<widget class="GtkLabel" id="label2">
+			  <property name="visible">True</property>
+			  <property name="label" translatable="yes">Rescan</property>
+			  <property name="use_underline">True</property>
+			  <property name="use_markup">False</property>
+			  <property name="justify">GTK_JUSTIFY_LEFT</property>
+			  <property name="wrap">False</property>
+			  <property name="selectable">False</property>
+			  <property name="xalign">0.5</property>
+			  <property name="yalign">0.5</property>
+			  <property name="xpad">0</property>
+			  <property name="ypad">0</property>
+			</widget>
+			<packing>
+			  <property name="padding">0</property>
+			  <property name="expand">False</property>
+			  <property name="fill">False</property>
+			</packing>
+		      </child>
+		    </widget>
+		  </child>
+		</widget>
+	      </child>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	      <property name="pack_type">GTK_PACK_END</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkButton" id="b_quit">
+	      <property name="border_width">3</property>
+	      <property name="width_request">100</property>
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label">gtk-quit</property>
+	      <property name="use_stock">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <signal name="clicked" handler="gtk_main_quit" last_modification_time="Mon, 13 Sep 2004 06:21:54 GMT"/>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	      <property name="pack_type">GTK_PACK_END</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkButton" id="b_quit_unload">
+	      <property name="border_width">3</property>
+	      <property name="width_request">100</property>
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label" translatable="yes">Quit+Unload</property>
+	      <property name="use_underline">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <signal name="clicked" handler="on_b_quit_unload_clicked" last_modification_time="Mon, 20 Sep 2004 05:15:00 GMT"/>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	      <property name="pack_type">GTK_PACK_END</property>
+	    </packing>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">False</property>
+	  <property name="fill">True</property>
+	</packing>
+      </child>
+    </widget>
+  </child>
+</widget>
+
+<widget class="GtkDialog" id="dlg_passwd">
+  <property name="title" translatable="yes">Password</property>
+  <property name="type">GTK_WINDOW_TOPLEVEL</property>
+  <property name="window_position">GTK_WIN_POS_NONE</property>
+  <property name="modal">False</property>
+  <property name="resizable">True</property>
+  <property name="destroy_with_parent">False</property>
+  <property name="decorated">True</property>
+  <property name="skip_taskbar_hint">False</property>
+  <property name="skip_pager_hint">False</property>
+  <property name="type_hint">GDK_WINDOW_TYPE_HINT_DIALOG</property>
+  <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
+  <property name="has_separator">True</property>
+
+  <child internal-child="vbox">
+    <widget class="GtkVBox" id="dialog-vbox1">
+      <property name="visible">True</property>
+      <property name="homogeneous">False</property>
+      <property name="spacing">0</property>
+
+      <child internal-child="action_area">
+	<widget class="GtkHButtonBox" id="dialog-action_area1">
+	  <property name="visible">True</property>
+	  <property name="layout_style">GTK_BUTTONBOX_END</property>
+
+	  <child>
+	    <widget class="GtkButton" id="b_pass_cancel">
+	      <property name="visible">True</property>
+	      <property name="can_default">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label">gtk-cancel</property>
+	      <property name="use_stock">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="response_id">-6</property>
+	    </widget>
+	  </child>
+
+	  <child>
+	    <widget class="GtkButton" id="b_pass_ok">
+	      <property name="visible">True</property>
+	      <property name="can_default">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label">gtk-ok</property>
+	      <property name="use_stock">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="response_id">-5</property>
+	    </widget>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">False</property>
+	  <property name="fill">True</property>
+	  <property name="pack_type">GTK_PACK_END</property>
+	</packing>
+      </child>
+
+      <child>
+	<widget class="GtkVBox" id="vbox2">
+	  <property name="visible">True</property>
+	  <property name="homogeneous">False</property>
+	  <property name="spacing">0</property>
+
+	  <child>
+	    <widget class="GtkLabel" id="lb_passwd">
+	      <property name="visible">True</property>
+	      <property name="label" translatable="yes">Enter WEP key / password</property>
+	      <property name="use_underline">False</property>
+	      <property name="use_markup">False</property>
+	      <property name="justify">GTK_JUSTIFY_LEFT</property>
+	      <property name="wrap">False</property>
+	      <property name="selectable">False</property>
+	      <property name="xalign">0.5</property>
+	      <property name="yalign">0.5</property>
+	      <property name="xpad">0</property>
+	      <property name="ypad">0</property>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkEntry" id="te_passwd">
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="editable">True</property>
+	      <property name="visibility">True</property>
+	      <property name="max_length">0</property>
+	      <property name="text" translatable="yes"></property>
+	      <property name="has_frame">True</property>
+	      <property name="invisible_char" translatable="yes">*</property>
+	      <property name="activates_default">False</property>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkRadioButton" id="rb_wep">
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label" translatable="yes">This is a WEP key</property>
+	      <property name="use_underline">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="active">False</property>
+	      <property name="inconsistent">False</property>
+	      <property name="draw_indicator">True</property>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	    </packing>
+	  </child>
+
+	  <child>
+	    <widget class="GtkRadioButton" id="rb_password">
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label" translatable="yes">This is a password</property>
+	      <property name="use_underline">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="active">False</property>
+	      <property name="inconsistent">False</property>
+	      <property name="draw_indicator">True</property>
+	      <property name="group">rb_wep</property>
+	    </widget>
+	    <packing>
+	      <property name="padding">0</property>
+	      <property name="expand">False</property>
+	      <property name="fill">False</property>
+	    </packing>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">True</property>
+	  <property name="fill">True</property>
+	</packing>
+      </child>
+    </widget>
+  </child>
+</widget>
+
+<widget class="GtkDialog" id="dlg_connected">
+  <property name="can_default">True</property>
+  <property name="title" translatable="yes">Connected</property>
+  <property name="type">GTK_WINDOW_TOPLEVEL</property>
+  <property name="window_position">GTK_WIN_POS_NONE</property>
+  <property name="modal">True</property>
+  <property name="default_width">400</property>
+  <property name="default_height">300</property>
+  <property name="resizable">True</property>
+  <property name="destroy_with_parent">False</property>
+  <property name="decorated">True</property>
+  <property name="skip_taskbar_hint">False</property>
+  <property name="skip_pager_hint">False</property>
+  <property name="type_hint">GDK_WINDOW_TYPE_HINT_DIALOG</property>
+  <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
+  <property name="has_separator">True</property>
+
+  <child internal-child="vbox">
+    <widget class="GtkVBox" id="dialog-vbox2">
+      <property name="visible">True</property>
+      <property name="homogeneous">False</property>
+      <property name="spacing">0</property>
+
+      <child internal-child="action_area">
+	<widget class="GtkHButtonBox" id="dialog-action_area2">
+	  <property name="visible">True</property>
+	  <property name="layout_style">GTK_BUTTONBOX_END</property>
+
+	  <child>
+	    <widget class="GtkButton" id="b_con_cancel">
+	      <property name="visible">True</property>
+	      <property name="can_default">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="label">gtk-cancel</property>
+	      <property name="use_stock">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="response_id">-6</property>
+	    </widget>
+	  </child>
+
+	  <child>
+	    <widget class="GtkButton" id="b_con_ok">
+	      <property name="visible">True</property>
+	      <property name="can_default">True</property>
+	      <property name="has_default">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="has_focus">True</property>
+	      <property name="label">gtk-ok</property>
+	      <property name="use_stock">True</property>
+	      <property name="relief">GTK_RELIEF_NORMAL</property>
+	      <property name="focus_on_click">True</property>
+	      <property name="response_id">-5</property>
+	    </widget>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">False</property>
+	  <property name="fill">True</property>
+	  <property name="pack_type">GTK_PACK_END</property>
+	</packing>
+      </child>
+
+      <child>
+	<widget class="GtkScrolledWindow" id="sw_connected">
+	  <property name="visible">True</property>
+	  <property name="can_focus">True</property>
+	  <property name="hscrollbar_policy">GTK_POLICY_ALWAYS</property>
+	  <property name="vscrollbar_policy">GTK_POLICY_ALWAYS</property>
+	  <property name="shadow_type">GTK_SHADOW_NONE</property>
+	  <property name="window_placement">GTK_CORNER_TOP_LEFT</property>
+
+	  <child>
+	    <widget class="GtkTreeView" id="tv_connected">
+	      <property name="visible">True</property>
+	      <property name="can_focus">True</property>
+	      <property name="headers_visible">True</property>
+	      <property name="rules_hint">False</property>
+	      <property name="reorderable">False</property>
+	      <property name="enable_search">True</property>
+	    </widget>
+	  </child>
+	</widget>
+	<packing>
+	  <property name="padding">0</property>
+	  <property name="expand">True</property>
+	  <property name="fill">True</property>
+	</packing>
+      </child>
+    </widget>
+  </child>
+</widget>
+
+</glade-interface>
+
