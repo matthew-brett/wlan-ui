@@ -12,7 +12,7 @@
 # 
 # This version by Matthew Brett (matthewb berkeley.edu)
 #
-# $Id: wlan-ui.pl,v 1.9 2005/04/01 21:55:11 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.10 2005/04/01 22:10:35 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -78,7 +78,7 @@ my(@opt_table) = (
 		  "quiet",         # fewer messages
 		  "version",       # to show version number
 		  "ui!",           # flag to use UI
-		  "quit_on_connect" # whether to quit interface when connected
+		  "quit_on_connect!", # quit interface when connected ?
 		  "autoconnect!",  # whether to try autoconnect or no
 		  "autoconnect_to=s@", # ESSIDs to do auto connect for
 		  "key=s%",        # ESSID=wep_key_value pairs
@@ -94,6 +94,7 @@ my(%opt_defs) = (
 		 'verbose', 0,
 		 'ui',      1, 
 		 'autoconnect', 0,
+		 'quit_on_connect', 1, 
 		 'rescan_interval', 2, 
 		 'rescan_count', 1,
 		 );
@@ -218,7 +219,7 @@ exit 0;
 # sort out and check options
 sub resolve_commands {
     my ($module, $moduleparams, $cmds) = @_;
-    my $c, $locale_str;
+    my ($c, $locale_str, $c_str);
 
     if ($module) { # We need commmands 
 	$cmds = get_command($cmds, 'lsmod');
@@ -235,8 +236,9 @@ sub resolve_commands {
     }
     $locale_str = "LC_ALL=C";
     foreach $c(qw(iwconfig ifconfig)) {
-	$cmds->{$c} = "$locale_str  ; $cmds->{$c}"
-	    unless $cmds->{$c} ~= $locale_str;
+	$c_str = $cmds->{$c};
+	$cmds->{$c} = "$locale_str  ; $c_str"
+	    unless ($c_str =~ $locale_str);
     }
     return $cmds;
 }
@@ -691,7 +693,8 @@ sub on_b_connect_clicked {
     my $ap = get_ap_by_essid($APS, $essid);
     die "Cannot find AP $essid" unless $ap;
 
-    Gtk2->main_quit if ( ui_connect($ap, $CMDS) & $OPTIONS{quit_on_connect});
+    Gtk2->main_quit if ( ui_connect($ap, $CMDS) &&
+			 $OPTIONS{quit_on_connect});
 }
 
 1;
@@ -876,7 +879,7 @@ E<lt>http://ipw2100.sourceforge.netE<gt> as my wireless driver.  By
 default this gives me a network device attached to 'wlan0'.
 
   # Example system configuration file 
-  # Save as /etc/wlan-uirc
+  # Edit and save as /etc/wlan-uirc
 
   # Wireless driver module to load
   $MODULE = 'ipw2200';
@@ -937,7 +940,7 @@ run the script.  Here's some excerpts from my /etc/sudoers file:
    User_Alias   WIRELESS = myself, myfriend
 
    # Run wlan-ui
-   WIRELESS LAPTOP = NOPASSWD: /usr/local/bin/wlan-ui/wlan-ui.pl
+   WIRELESS LAPTOP = NOPASSWD: /usr/local/bin/wlan-ui.pl
 
 I can then run wlan-ui.pl with
 
