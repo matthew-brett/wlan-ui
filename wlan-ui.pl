@@ -13,7 +13,7 @@
 # This version by Matthew Brett (matthewb berkeley.edu), with help
 # from Martin Steigerwald
 #
-# $Id: wlan-ui.pl,v 1.11 2005/04/01 22:14:30 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.12 2005/04/28 00:43:06 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -793,7 +793,7 @@ Sets the number of times to rescan if no APs found (default 1).
 
 By default, and with the -quit_on_connect option, the program will
 finish when connection to an AP is successful.  To reverse this
-default (so program does not quit) use the -no_quit_on_connect version
+default (so program does not quit) use the -noquit_on_connect version
 of this option.
 
 =item B<-autoconnect>
