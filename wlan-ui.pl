@@ -13,7 +13,7 @@
 # This version by Matthew Brett (matthewb berkeley.edu), with help
 # from Martin Steigerwald
 #
-# $Id: wlan-ui.pl,v 1.12 2005/04/28 00:43:06 matthewbrett Exp $ 
+# $Id: wlan-ui.pl,v 1.13 2005/04/28 00:43:46 matthewbrett Exp $ 
 
 use Gtk2;
 use Gtk2::GladeXML;
@@ -32,7 +32,7 @@ use strict;
 
 use vars qw($VERSION $MODULE $MODULEPARAMS $DEVICE $CMDS);
 
-$VERSION = 0.04;
+$VERSION = 0.05;
 
 # ------------------------------------------------------------------
 # You can make edits below to fit you configuration.  It's probably
